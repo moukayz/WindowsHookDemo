@@ -15,6 +15,9 @@ TdefOldMessageBoxW OldMessageBoxW;
 // CreateProcess hook
 TdefOldCreateProcess OldCreateProcess;
 
+// VirtualAlloc hook
+TdefOldVirtualAlloc OldVirtualAlloc;
+
 // Allocate buffer to store trampoline of hooked funtions
 LPVOID OriginalMemArea;
 
@@ -23,7 +26,8 @@ HOOK_ARRAY HookArray[] =
 	/*{TEXT("user32.dll"), TEXT("MessageBoxA"), (LPVOID)&NewMessageBoxA, &OldMessageBoxA, 0},
 	{TEXT("user32.dll"), TEXT("MessageBoxW"), (LPVOID)&NewMessageBoxW, &OldMessageBoxW, 0},*/
 
-	{TEXT("kernel32.dll"), TEXT("CreateProcessA"), (LPVOID)&NewCreateProcess, &OldCreateProcess, 0}
+	{TEXT("kernel32.dll"), TEXT("CreateProcessA"), (LPVOID)&NewCreateProcess, &OldCreateProcess, 0},
+	{TEXT("kernel32.dll"), TEXT("VirtualAlloc"), (LPVOID)&NewVirtualAlloc, &OldVirtualAlloc, 0}
 };
 
 int main()
@@ -39,36 +43,50 @@ int main()
 	MessageBoxW(NULL, L"world", L"MsgBoxW Test", MB_OK);*/
 
 	// CreateProcess hook
-	STARTUPINFO si;
-	PROCESS_INFORMATION pi;
-	LPCTSTR appName = TEXT("C:\\Windows\\System32\\notepad.exe");
+	//STARTUPINFO si;
+	//PROCESS_INFORMATION pi;
+	//LPCTSTR appName = TEXT("C:\\Windows\\System32\\notepad.exe");
 
-	ZeroMemory(&si, sizeof(si));
-	si.cb = sizeof(si);
-	ZeroMemory(&pi, sizeof(pi));
+	//ZeroMemory(&si, sizeof(si));
+	//si.cb = sizeof(si);
+	//ZeroMemory(&pi, sizeof(pi));
 
-	if (!CreateProcess(appName,   // No module name (use command line)
-		NULL,        // Command line
-		NULL,           // Process handle not inheritable
-		NULL,           // Thread handle not inheritable
-		FALSE,          // Set handle inheritance to FALSE
-		0,              // No creation flags
-		NULL,           // Use parent's environment block
-		NULL,           // Use parent's starting directory 
-		&si,            // Pointer to STARTUPINFO structure
-		&pi)           // Pointer to PROCESS_INFORMATION structure
-		)
+	//if (!CreateProcess(appName,   // No module name (use command line)
+	//	NULL,        // Command line
+	//	NULL,           // Process handle not inheritable
+	//	NULL,           // Thread handle not inheritable
+	//	FALSE,          // Set handle inheritance to FALSE
+	//	0,              // No creation flags
+	//	NULL,           // Use parent's environment block
+	//	NULL,           // Use parent's starting directory 
+	//	&si,            // Pointer to STARTUPINFO structure
+	//	&pi)           // Pointer to PROCESS_INFORMATION structure
+	//	)
+	//{
+	//	printf("CreateProcess failed (%d).\n", GetLastError());
+	//	return 0;
+	//}
+
+	//// Wait until child process exits.
+	//WaitForSingleObject(pi.hProcess, INFINITE);
+
+	//// Close process and thread handles. 
+	//CloseHandle(pi.hProcess);
+	//CloseHandle(pi.hThread);
+
+	// VirtualAlloc hook
+	LPVOID p = NULL;
+	DWORD dwSize = 10;
+
+	if (!VirtualAlloc(
+		p,	// Page to commit
+		dwSize,	// Allocated page size in bytes
+		MEM_COMMIT,	// Allocate a committed page
+		PAGE_EXECUTE_READWRITE))	// r/w/x access
 	{
-		printf("CreateProcess failed (%d).\n", GetLastError());
-		return 0;
+		printf("VritualAlloc failed!\n");
+		exit(1);
 	}
-
-	// Wait until child process exits.
-	WaitForSingleObject(pi.hProcess, INFINITE);
-
-	// Close process and thread handles. 
-	CloseHandle(pi.hProcess);
-	CloseHandle(pi.hThread);
 
 	// Unhook all functions
 	UnHookAll();
@@ -110,6 +128,20 @@ NewCreateProcess(
 
 	return OldCreateProcess(
 		newAppName, lpCommandLine, lpProcessAttributes, lpThreadAttributes, bInheritHandles, dwCreationFlags, lpEnvironment, lpCurrentDirectory, lpStartupInfo, lpProcessInformation);
+}
+
+LPVOID WINAPI
+NewVirtualAlloc(
+	LPVOID lpAddress,
+	SIZE_T dwSize,
+	DWORD flAllocationType,
+	DWORD flProtect)
+{
+	printf("Function: VirtualAlloc will be called!\n");
+	printf("Address to be allocated: %p\n", lpAddress);
+	printf("Allocated size: %d\n", dwSize);
+
+	return OldVirtualAlloc(lpAddress, dwSize, flAllocationType, flProtect);
 }
 
 VOID SafeMemcpyPadded(LPVOID dst, LPVOID src, DWORD size)

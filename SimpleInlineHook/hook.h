@@ -9,18 +9,20 @@ typedef struct
 	DWORD length;	// Length of the original instructions to be replaced in hooked function
 } HOOK_ARRAY;
 
+// Hook MessageBoxA/W
 typedef int (WINAPI *TdefOldMessageBoxA)(
-	HWND hWnd, 
-	LPCSTR lpText, 
-	LPCSTR lpCaption, 
+	HWND hWnd,
+	LPCSTR lpText,
+	LPCSTR lpCaption,
 	UINT uType);
 typedef int (WINAPI *TdefOldMessageBoxW)(
-	HWND hWnd, 
-	LPCWSTR lpText, 
-	LPCWSTR lpCaption, 
+	HWND hWnd,
+	LPCWSTR lpText,
+	LPCWSTR lpCaption,
 	UINT uType);
 
-typedef BOOL(WINAPI *TdefOldCreateProcess)(
+// Hook CreateProcess
+typedef BOOL (WINAPI *TdefOldCreateProcess)(
 	LPCTSTR	lpApplicationName,
 	LPTSTR	lpCommandLine,
 	LPSECURITY_ATTRIBUTES lpProcessAttributes,
@@ -31,8 +33,17 @@ typedef BOOL(WINAPI *TdefOldCreateProcess)(
 	LPCTSTR	lpCurrentDirectory,
 	LPSTARTUPINFO	lpStartupInfo,
 	LPPROCESS_INFORMATION	lpProcessInformation
-);
+	);
 
+// Hook VirtualAlloc
+typedef LPVOID (WINAPI *TdefOldVirtualAlloc)(
+	LPVOID lpAddress,
+	SIZE_T dwSize,
+	DWORD flAllocationType,
+	DWORD flProtect
+	);
+
+// Declare redirection function of system functions
 int WINAPI NewMessageBoxA(HWND hWnd, LPCSTR lpText, LPCSTR lpCaption, UINT uType);
 int WINAPI NewMessageBoxW(HWND hWnd, LPCWSTR lpText, LPCWSTR lpCaption, UINT uType);
 
@@ -47,6 +58,13 @@ BOOL WINAPI NewCreateProcess(
 	LPCTSTR	lpCurrentDirectory,
 	LPSTARTUPINFO	lpStartupInfo,
 	LPPROCESS_INFORMATION	lpProcessInformation
+);
+
+LPVOID WINAPI NewVirtualAlloc(
+	LPVOID lpAddress,
+	SIZE_T dwSize,
+	DWORD flAllocationType,
+	DWORD flProtect
 );
 
 BOOL HookFunction(LPCSTR hookedDll, LPCSTR hookedFuncName, LPVOID injectedRtn, LPVOID originalEntry, PDWORD length);
