@@ -1,35 +1,79 @@
 #include <Windows.h>
 #include <stdio.h>
 #include <intrin.h>
+#include <tchar.h>
 
 #include "hook.h"
 #include "disasm\hde32.h"
 
 #define NO_INLINE_ASM
 
+// MessageBox hook
 TdefOldMessageBoxA OldMessageBoxA;
 TdefOldMessageBoxW OldMessageBoxW;
 
+// CreateProcess hook
+TdefOldCreateProcess OldCreateProcess;
+
+// Allocate buffer to store trampoline of hooked funtions
 LPVOID OriginalMemArea;
 
 HOOK_ARRAY HookArray[] =
 {
-	{TEXT("user32.dll"), TEXT("MessageBoxA"), (LPVOID)&NewMessageBoxA, &OldMessageBoxA, 0},
-	{TEXT("user32.dll"), TEXT("MessageBoxW"), (LPVOID)&NewMessageBoxW, &OldMessageBoxW, 0},
+	/*{TEXT("user32.dll"), TEXT("MessageBoxA"), (LPVOID)&NewMessageBoxA, &OldMessageBoxA, 0},
+	{TEXT("user32.dll"), TEXT("MessageBoxW"), (LPVOID)&NewMessageBoxW, &OldMessageBoxW, 0},*/
+
+	{TEXT("kernel32.dll"), TEXT("CreateProcessA"), (LPVOID)&NewCreateProcess, &OldCreateProcess, 0}
 };
 
 int main()
 {
+	// Hook all functions in HookArray
 	HookAll();
 
-	MessageBoxA(NULL, "hello", "MsgBoxA Test", MB_OK);
+	// MessageBox hook
+	/*MessageBoxA(NULL, "hello", "MsgBoxA Test", MB_OK);
 	MessageBoxA(NULL, "world", "MsgBoxA Test", MB_OK);
 
 	MessageBoxW(NULL, L"hello", L"MsgBoxW Test", MB_OK);
-	MessageBoxW(NULL, L"world", L"MsgBoxW Test", MB_OK);
+	MessageBoxW(NULL, L"world", L"MsgBoxW Test", MB_OK);*/
 
+	// CreateProcess hook
+	STARTUPINFO si;
+	PROCESS_INFORMATION pi;
+	LPCTSTR appName = TEXT("C:\\Windows\\System32\\notepad.exe");
+
+	ZeroMemory(&si, sizeof(si));
+	si.cb = sizeof(si);
+	ZeroMemory(&pi, sizeof(pi));
+
+	if (!CreateProcess(appName,   // No module name (use command line)
+		NULL,        // Command line
+		NULL,           // Process handle not inheritable
+		NULL,           // Thread handle not inheritable
+		FALSE,          // Set handle inheritance to FALSE
+		0,              // No creation flags
+		NULL,           // Use parent's environment block
+		NULL,           // Use parent's starting directory 
+		&si,            // Pointer to STARTUPINFO structure
+		&pi)           // Pointer to PROCESS_INFORMATION structure
+		)
+	{
+		printf("CreateProcess failed (%d).\n", GetLastError());
+		return 0;
+	}
+
+	// Wait until child process exits.
+	WaitForSingleObject(pi.hProcess, INFINITE);
+
+	// Close process and thread handles. 
+	CloseHandle(pi.hProcess);
+	CloseHandle(pi.hThread);
+
+	// Unhook all functions
 	UnHookAll();
 	//getchar();
+
 }
 INT WINAPI
 NewMessageBoxA(HWND hWnd, LPCSTR lpText, LPCSTR lpCaption, UINT uType)
@@ -45,6 +89,29 @@ NewMessageBoxW(HWND hWnd, LPCWSTR lpText, LPCWSTR lpCaption, UINT uType)
 	return OldMessageBoxW(hWnd, lpText, lpCaption, uType);
 }
 
+BOOL WINAPI
+NewCreateProcess(
+	LPCTSTR	lpApplicationName,
+	LPTSTR	lpCommandLine,
+	LPSECURITY_ATTRIBUTES lpProcessAttributes,
+	LPSECURITY_ATTRIBUTES lpThreadAttributes,
+	BOOL	bInheritHandles,
+	DWORD	dwCreationFlags,
+	LPVOID	lpEnvironment,
+	LPCTSTR	lpCurrentDirectory,
+	LPSTARTUPINFO	lpStartupInfo,
+	LPPROCESS_INFORMATION	lpProcessInformation)
+{
+	PROCESS_INFORMATION pi = *lpProcessInformation;
+	LPCTSTR newAppName = TEXT("c:\\windows\\system32\\calc.exe");
+
+	printf_s("Process: %s will be created!\n", lpApplicationName);
+	printf_s("Replaced with new process : %s", newAppName);
+
+	return OldCreateProcess(
+		newAppName, lpCommandLine, lpProcessAttributes, lpThreadAttributes, bInheritHandles, dwCreationFlags, lpEnvironment, lpCurrentDirectory, lpStartupInfo, lpProcessInformation);
+}
+
 VOID SafeMemcpyPadded(LPVOID dst, LPVOID src, DWORD size)
 {
 	BYTE SourceBuffer[8];
@@ -57,86 +124,96 @@ VOID SafeMemcpyPadded(LPVOID dst, LPVOID src, DWORD size)
 	memcpy(SourceBuffer, src, size);
 
 #ifndef NO_INLINE_ASM
-	__asm
+	asm
 	{
 		lea esi, SourceBuffer;
 		mov edi, dst;
 
-		mov eax, [edi];
-		mov edx, [edi + 4];
-		mov ebx, [esi];
-		mov ecx, [esi + 4];
+		mov eax,[edi];
+		mov edx,[edi + 4];
+		mov ebx,[esi];
+		mov ecx,[esi + 4];
 
 		lock cmpxchg8b[edi];
 	}
 #else
-	_InterlockedCompareExchange64((LONGLONG *)dst, *(LONGLONG *)SourceBuffer, *(LONGLONG *)dst);
+	InterlockedCompareExchange64((LONGLONG *)dst, *(LONGLONG *)SourceBuffer, *(LONGLONG *)dst);
 #endif
 }
 
-BOOL HookFunction(LPCSTR _hookedDll, LPCSTR _hookedFuncName, LPVOID _injectedRtn, LPVOID _trampoline, PDWORD _tlength)
+BOOL HookFunction(LPCSTR hookedDll, LPCSTR hookedFuncName, LPVOID injectedRtn, LPVOID originalPrologue, PDWORD tlength)
 {
 	LPVOID functionAddr;
-	DWORD trampolineLen = 0, originalProtection;
+	DWORD prologueLen = 0, originalProtection;
 	hde32s disam;
 	BYTE jump[5] = { 0xe9, 0x00, 0x00,0x00,0x00 };
 
-	if (!(functionAddr = GetProcAddress(GetModuleHandle(_hookedDll), _hookedFuncName)))
+	if (!(functionAddr = GetProcAddress(GetModuleHandle(hookedDll), hookedFuncName)))
 	{
 		return FALSE;
 	}
 
 	// Disassmble length of  each instruction, until we have 5 or more bytes
-	while (trampolineLen < 5)
+	while (prologueLen < 5)
 	{
-		LPVOID insPtr = (LPVOID)((DWORD)functionAddr + trampolineLen);
-		trampolineLen += hde32_disasm(insPtr, &disam);
+		LPVOID insPtr = (LPVOID)((DWORD)functionAddr + prologueLen);
+		prologueLen += hde32_disasm(insPtr, &disam);
 	}
 
-	// Build trampoline buffer
-	memcpy(_trampoline, functionAddr, trampolineLen);
-	*(DWORD *)(jump + 1) = ((DWORD)functionAddr + trampolineLen) - ((DWORD)_trampoline + trampolineLen + 5);
-	memcpy((LPVOID)((DWORD)_trampoline + trampolineLen), jump, 5);
+	/*
+	 * Build trampoline buffer
+	 */
+	 // Save prologue of the hooked function
+	memcpy(originalPrologue, functionAddr, prologueLen);
 
-	// Make sure the function is writable
-	if (!VirtualProtect(functionAddr, trampolineLen, PAGE_EXECUTE_READWRITE, &originalProtection))
+	// Relative jump to original code after prologue of the hooked function
+	*(DWORD *)(jump + 1) = ((DWORD)functionAddr + prologueLen) - ((DWORD)originalPrologue + prologueLen + 5);
+
+	// Save jmp instruction which back to hooked function
+	memcpy((LPVOID)((DWORD)originalPrologue + prologueLen), jump, 5);
+
+	/*
+	 *	Overwrite prologue of the hooked function with jmp which redirect to my function
+	 */
+	 // Make sure the function is writable
+	if (!VirtualProtect(functionAddr, prologueLen, PAGE_EXECUTE_READWRITE, &originalProtection))
 		return FALSE;
 
 	// Build and atomatically write the hook
-	*(DWORD *)(jump + 1) = (DWORD)_injectedRtn - (DWORD)functionAddr - 5;
+	*(DWORD *)(jump + 1) = (DWORD)injectedRtn - (DWORD)functionAddr - 5;
 	SafeMemcpyPadded(functionAddr, jump, 5);
 
-	// Restore the _trampoline page protection
-	VirtualProtect(functionAddr, trampolineLen, originalProtection, &originalProtection);
+	// Restore the originalPrologue page protection
+	VirtualProtect(functionAddr, prologueLen, originalProtection, &originalProtection);
 
 	// Clear CPU instruction cache
-	FlushInstructionCache(GetCurrentProcess(), functionAddr, trampolineLen);
+	FlushInstructionCache(GetCurrentProcess(), functionAddr, prologueLen);
 
-	*_tlength = trampolineLen;
+	*tlength = prologueLen;
 	return TRUE;
 
 }
 
-BOOL UnHookFunction(LPCSTR _hookedDll, LPCSTR _hookedFuncName, LPVOID _trampoline, DWORD _tlength)
+BOOL UnHookFunction(LPCSTR hookedDll, LPCSTR hookedFuncName, LPVOID originalPrologue, DWORD tlength)
 {
 	LPVOID functionAddr;
 	DWORD originalProtection;
 
-	if (!(functionAddr = GetProcAddress(GetModuleHandle(_hookedDll), _hookedFuncName)))
+	if (!(functionAddr = GetProcAddress(GetModuleHandle(hookedDll), hookedFuncName)))
 	{
 		return FALSE;
 	}
 
-	if (!VirtualProtect(functionAddr, _tlength, PAGE_EXECUTE_READWRITE, &originalProtection))
+	if (!VirtualProtect(functionAddr, tlength, PAGE_EXECUTE_READWRITE, &originalProtection))
 	{
 		return FALSE;
 	}
 
-	SafeMemcpyPadded(functionAddr, _trampoline, _tlength);
+	SafeMemcpyPadded(functionAddr, originalPrologue, tlength);
 
-	VirtualProtect(functionAddr, _tlength, PAGE_EXECUTE_READWRITE, &originalProtection);
+	VirtualProtect(functionAddr, tlength, PAGE_EXECUTE_READWRITE, &originalProtection);
 
-	FlushInstructionCache(GetCurrentProcess(), functionAddr, _tlength);
+	FlushInstructionCache(GetCurrentProcess(), functionAddr, tlength);
 
 	return TRUE;
 
@@ -145,7 +222,7 @@ VOID HookAll()
 {
 	int i, NUmEntries = sizeof(HookArray) / sizeof(HOOK_ARRAY);
 
-	// Need 25 bytes for each hooked function to hold _trampoline byte + return jump
+	// Need 25 bytes for each hooked function to hold originalPrologue byte + return jump
 	if (!(OriginalMemArea = VirtualAlloc(NULL, 25 * NUmEntries, MEM_COMMIT, PAGE_EXECUTE_READWRITE)))
 	{
 		return;
@@ -154,19 +231,19 @@ VOID HookAll()
 	for (i = 0; i < NUmEntries; i++)
 	{
 		// Split the allocated memory into a block of 25 bytes for each hooked function
-		*(LPVOID *)HookArray[i]._trampoline = (LPVOID)((DWORD)OriginalMemArea + (i * 25));
-		HookFunction(HookArray[i]._hookedDll, HookArray[i]._hookedFuncName, HookArray[i]._injectedRtn, *(LPVOID *)HookArray[i]._trampoline, &HookArray[i]._tlength);
+		*(LPVOID *)HookArray[i].originalPrologue = (LPVOID)((DWORD)OriginalMemArea + (i * 25));
+		HookFunction(HookArray[i].hookedDll, HookArray[i].hookedFuncName, HookArray[i].injectedRtn, *(LPVOID *)HookArray[i].originalPrologue, &HookArray[i].length);
 	}
 
 }
 
 VOID UnHookAll()
 {
-	int i, NumEntries = sizeof(HookArray) / sizeof(HookArray);
+	int i, NumEntries = sizeof(HookArray) / sizeof(HOOK_ARRAY);
 
 	for (i = 0; i < NumEntries; i++)
 	{
-		UnHookFunction(HookArray[i]._hookedDll, HookArray[i]._hookedFuncName, *(LPVOID *)HookArray[i]._trampoline, HookArray[i]._tlength);
+		UnHookFunction(HookArray[i].hookedDll, HookArray[i].hookedFuncName, *(LPVOID *)HookArray[i].originalPrologue, HookArray[i].length);
 	}
 
 	VirtualFree(OriginalMemArea, 0, MEM_RELEASE);
