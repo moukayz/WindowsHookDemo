@@ -5,9 +5,9 @@
 #include "easyhook.h"
 
 #if _WIN64
-#pragma comment(lib, "lib\\EasyHook64.lib")
+#pragma comment(lib, "..\\lib\\EasyHook64.lib")
 #else
-#pragma comment(lib, "lib\\EasyHook32.lib")
+#pragma comment(lib, "..\\lib\\EasyHook32.lib")
 #endif
 
 BOOL WINAPI NewBeepHook(DWORD dwFreq, DWORD dwDuration)
