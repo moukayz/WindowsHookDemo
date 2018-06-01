@@ -2,13 +2,13 @@
 #include <stdio.h>
 #include <Windows.h>
 
-#include "easyhook.h"
+#include <easyhook.h>
 
-#if _WIN64
-#pragma comment(lib, "..\\lib\\EasyHook64.lib")
-#else
-#pragma comment(lib, "..\\lib\\EasyHook32.lib")
-#endif
+//#if _WIN64
+//#pragma comment(lib, "..\\lib\\EasyHook64.lib")
+//#else
+//#pragma comment(lib, "..\\lib\\EasyHook32.lib")
+//#endif
 
 BOOL WINAPI NewBeepHook(DWORD dwFreq, DWORD dwDuration)
 {

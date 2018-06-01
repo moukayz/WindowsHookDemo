@@ -20,8 +20,8 @@
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>15.0</VCProjectVersion>
-    <ProjectGuid>{EB7424F5-E9B9-4632-95AF-8A280F828BEF}</ProjectGuid>
-    <RootNamespace>EasyHookLibDemo</RootNamespace>
+    <ProjectGuid>{E5FC55C1-4B90-46EC-97C3-2E4DD33B76A3}</ProjectGuid>
+    <RootNamespace>HookByDll</RootNamespace>
     <WindowsTargetPlatformVersion>10.0.16299.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -76,11 +76,7 @@
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>..\EasyHookLib\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
-    <Link>
-      <AdditionalDependencies>..\EasyHookLib\lib\EasyHook32.lib;..\EasyHookLib\lib\EasyHook64.lib;%(AdditionalDependencies)</AdditionalDependencies>
-    </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -122,7 +118,7 @@
     <ClInclude Include="easyhook.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="localhook.cpp" />
+    <ClCompile Include="dllhook.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
